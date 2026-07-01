@@ -17,14 +17,14 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
+          port: ${{ secrets.SSH_PORT || '22' }}
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
             chmod +x deploy/deploy.sh
             DEPLOY_MODE="${{ secrets.DEPLOY_MODE }}"
             if [ -z "$DEPLOY_MODE" ]; then
-              DEPLOY_MODE="docker"
+              DEPLOY_MODE="node"
             fi
 
             SERVICE_NAME="${{ secrets.SERVICE_NAME }}"

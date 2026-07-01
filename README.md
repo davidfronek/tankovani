@@ -160,3 +160,26 @@ Optional secrets for node mode:
 - `WEB_ROOT` (default `/var/www/tankovani`)
 
 Workflow file ` .github/workflows/deploy.yml ` already supports both modes (`docker` and `node`).
+
+### 5. One-shot preparation (server + GitHub)
+
+On server (Ubuntu/Debian), run:
+
+```bash
+cd /opt/tankovani
+chmod +x deploy/server-prepare-node.sh deploy/deploy.sh
+DOMAIN=your-domain.tld DB_PASSWORD='strong_password' ./deploy/server-prepare-node.sh /opt/tankovani
+```
+
+On your local machine, configure GitHub secrets via CLI:
+
+```bash
+cd /opt/tankovani
+chmod +x deploy/setup-github-secrets.sh
+SSH_HOST=your.server.ip \
+SSH_USER=deploy \
+SSH_PRIVATE_KEY_FILE=~/.ssh/id_ed25519 \
+DEPLOY_PATH=/opt/tankovani \
+DEPLOY_MODE=node \
+./deploy/setup-github-secrets.sh davidfronek/tankovani
+```
