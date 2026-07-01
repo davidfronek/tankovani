@@ -105,3 +105,58 @@ After this, every push to `main` triggers automatic deploy over SSH.
 ### 4. Optional HTTPS reverse proxy
 
 `docker-compose.prod.yml` publishes app on port `80`. For public production, place Nginx/Traefik/Caddy in front and terminate HTTPS there.
+
+## Production deployment without Docker (Node + systemd + Nginx)
+
+Deployment script also supports mode without Docker. In this mode:
+
+- backend runs as systemd service (`tankovani.service`)
+- frontend static files are built and copied to web root (`/var/www/tankovani`)
+- Nginx serves frontend and proxies `/api` to Node backend on port 4000
+
+### 1. Server prerequisites
+
+- Node.js 20+
+- PostgreSQL
+- Nginx
+- systemd
+
+### 2. Environment and service setup
+
+```bash
+cd /opt/tankovani
+cp server/.env.production.example server/.env
+sudo cp deploy/tankovani.service /etc/systemd/system/tankovani.service
+sudo systemctl daemon-reload
+sudo systemctl enable tankovani
+sudo systemctl start tankovani
+```
+
+### 3. Nginx setup
+
+```bash
+sudo cp deploy/nginx.tankovani.conf /etc/nginx/sites-available/tankovani.conf
+sudo ln -s /etc/nginx/sites-available/tankovani.conf /etc/nginx/sites-enabled/tankovani.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Adjust `server_name` and paths in `deploy/nginx.tankovani.conf` before enabling site.
+
+### 4. GitHub Actions for non-Docker deploy
+
+Set these repository secrets:
+
+- `SSH_HOST`
+- `SSH_USER`
+- `SSH_PRIVATE_KEY`
+- `SSH_PORT`
+- `DEPLOY_PATH` (e.g. `/opt/tankovani`)
+- `DEPLOY_MODE` set to `node`
+
+Optional secrets for node mode:
+
+- `SERVICE_NAME` (default `tankovani`)
+- `WEB_ROOT` (default `/var/www/tankovani`)
+
+Workflow file ` .github/workflows/deploy.yml ` already supports both modes (`docker` and `node`).

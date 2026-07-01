@@ -22,4 +22,15 @@ jobs:
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
             chmod +x deploy/deploy.sh
+            DEPLOY_MODE="${{ secrets.DEPLOY_MODE }}"
+            if [ -z "$DEPLOY_MODE" ]; then
+              DEPLOY_MODE="docker"
+            fi
+
+            SERVICE_NAME="${{ secrets.SERVICE_NAME }}"
+            WEB_ROOT="${{ secrets.WEB_ROOT }}"
+
+            DEPLOY_MODE="$DEPLOY_MODE" \
+            SERVICE_NAME="$SERVICE_NAME" \
+            WEB_ROOT="$WEB_ROOT" \
             ./deploy/deploy.sh "${{ secrets.DEPLOY_PATH }}"

@@ -1,0 +1,17 @@
+[Unit]
+Description=Tankovani API (Node.js)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tankovani/server
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/tankovani/server/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target
