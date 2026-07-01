@@ -1,0 +1,19 @@
+{
+  "name": "tankovani",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Fuel tracking app with React + Express + PostgreSQL",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "seed": "npm --prefix server run seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
