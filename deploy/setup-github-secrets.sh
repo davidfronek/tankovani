@@ -34,7 +34,6 @@ if [ -n "${SSH_PRIVATE_KEY_FILE:-}" ]; then
 fi
 
 SSH_PORT="${SSH_PORT:-22}"
-DEPLOY_MODE="${DEPLOY_MODE:-node}"
 SERVICE_NAME="${SERVICE_NAME:-tankovani}"
 WEB_ROOT="${WEB_ROOT:-/var/www/tankovani}"
 
@@ -43,7 +42,6 @@ echo "$SSH_USER" | gh secret set SSH_USER --repo "$REPO"
 echo "$SSH_PRIVATE_KEY" | gh secret set SSH_PRIVATE_KEY --repo "$REPO"
 echo "$SSH_PORT" | gh secret set SSH_PORT --repo "$REPO"
 echo "$DEPLOY_PATH" | gh secret set DEPLOY_PATH --repo "$REPO"
-echo "$DEPLOY_MODE" | gh secret set DEPLOY_MODE --repo "$REPO"
 echo "$SERVICE_NAME" | gh secret set SERVICE_NAME --repo "$REPO"
 echo "$WEB_ROOT" | gh secret set WEB_ROOT --repo "$REPO"
 

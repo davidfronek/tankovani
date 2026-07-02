@@ -78,7 +78,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
 
 cd "$REPO_DIR"
-DEPLOY_MODE=node SERVICE_NAME="$SERVICE_NAME" WEB_ROOT="$WEB_ROOT" ./deploy/deploy.sh "$REPO_DIR"
+SERVICE_NAME="$SERVICE_NAME" WEB_ROOT="$WEB_ROOT" ./deploy/deploy.sh "$REPO_DIR"
 
 echo "Server preparation finished."
 echo "Next step: enable HTTPS (recommended) using certbot/caddy/traefik."

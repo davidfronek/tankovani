@@ -17,10 +17,7 @@ Workbook sheets used as schema reference:
 
 ## Quick start
 
-1. Start PostgreSQL:
-   ```bash
-   docker compose up -d
-   ```
+1. Start PostgreSQL locally (for example service on `localhost:5432`) and create database `tanko`.
 2. Install dependencies:
    ```bash
    npm install
@@ -60,55 +57,9 @@ Workbook sheets used as schema reference:
 - Vehicles, fuels, fuel prices, and refuel logs are scoped by `user_id`; stations stay as a shared station-name directory.
 - For production behind HTTPS, set `CLIENT_ORIGIN`, `PUBLIC_SERVER_URL`, `GOOGLE_CALLBACK_URL`, and `AUTH_COOKIE_SECURE=true`.
 
-## Production deployment (Docker + GitHub Actions)
+## Production deployment (Node + systemd + Nginx)
 
-Project includes a production deployment pipeline:
-
-- `docker-compose.prod.yml` for app stack (PostgreSQL + API + web)
-- `server/Dockerfile` for backend image
-- `client/Dockerfile` + `client/nginx.conf` for frontend image and `/api` reverse proxy
-- `.github/workflows/deploy.yml` for automatic deploy after push to `main`
-- `deploy/deploy.sh` script executed on target server
-
-### 1. Server bootstrap
-
-On your server install Docker + Docker Compose plugin, then clone repository:
-
-```bash
-git clone https://github.com/davidfronek/tankovani.git /opt/tankovani
-cd /opt/tankovani
-cp .env.production.example .env.production
-```
-
-Edit `.env.production` with real values (domain, passwords, Google OAuth, etc.).
-
-### 2. First manual start on server
-
-```bash
-cd /opt/tankovani
-chmod +x deploy/deploy.sh
-./deploy/deploy.sh /opt/tankovani
-```
-
-### 3. GitHub repository secrets
-
-In GitHub repository settings add these Actions secrets:
-
-- `SSH_HOST` server hostname or IP
-- `SSH_USER` SSH username
-- `SSH_PRIVATE_KEY` private key for SSH login
-- `SSH_PORT` usually `22`
-- `DEPLOY_PATH` path to project on server, e.g. `/opt/tankovani`
-
-After this, every push to `main` triggers automatic deploy over SSH.
-
-### 4. Optional HTTPS reverse proxy
-
-`docker-compose.prod.yml` publishes app on port `80`. For public production, place Nginx/Traefik/Caddy in front and terminate HTTPS there.
-
-## Production deployment without Docker (Node + systemd + Nginx)
-
-Deployment script also supports mode without Docker. In this mode:
+Deployment uses Node runtime directly. In this mode:
 
 - backend runs as systemd service (`tankovani.service`)
 - frontend static files are built and copied to web root (`/var/www/tankovani`)
@@ -143,7 +94,7 @@ sudo systemctl reload nginx
 
 Adjust `server_name` and paths in `deploy/nginx.tankovani.conf` before enabling site.
 
-### 4. GitHub Actions for non-Docker deploy
+### 4. GitHub Actions deploy
 
 Set these repository secrets:
 
@@ -152,14 +103,13 @@ Set these repository secrets:
 - `SSH_PRIVATE_KEY`
 - `SSH_PORT`
 - `DEPLOY_PATH` (e.g. `/opt/tankovani`)
-- `DEPLOY_MODE` set to `node`
 
 Optional secrets for node mode:
 
 - `SERVICE_NAME` (default `tankovani`)
 - `WEB_ROOT` (default `/var/www/tankovani`)
 
-Workflow file ` .github/workflows/deploy.yml ` already supports both modes (`docker` and `node`).
+Workflow file `.github/workflows/deploy.yml` deploys this Node mode automatically.
 
 ### 5. One-shot preparation (server + GitHub)
 
@@ -180,6 +130,5 @@ SSH_HOST=your.server.ip \
 SSH_USER=deploy \
 SSH_PRIVATE_KEY_FILE=~/.ssh/id_ed25519 \
 DEPLOY_PATH=/opt/tankovani \
-DEPLOY_MODE=node \
 ./deploy/setup-github-secrets.sh davidfronek/tankovani
 ```
