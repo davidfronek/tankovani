@@ -85,6 +85,12 @@ export async function runPasswordResetMigration() {
   await pool.query(sql);
 }
 
+export async function runRefuelReceiptMigration() {
+  const sqlPath = path.resolve(__dirname, "../migrations/013_refuel_receipt.sql");
+  const sql = fs.readFileSync(sqlPath, "utf8");
+  await pool.query(sql);
+}
+
 export async function runSqlFile(relativePathFromServerRoot) {
   const sqlPath = path.resolve(__dirname, "..", relativePathFromServerRoot);
   const sql = fs.readFileSync(sqlPath, "utf8");

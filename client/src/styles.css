@@ -33,6 +33,18 @@
   box-sizing: border-box;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 body {
   margin: 0;
   background: var(--bg-0);
@@ -572,6 +584,114 @@ button:disabled {
   margin-bottom: 0.85rem;
 }
 
+.refuel-form-footer {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+}
+
+.refuel-options {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.full-fill-toggle,
+.receipt-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.6rem;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.full-fill-toggle {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.receipt-picker {
+  flex-wrap: wrap;
+  align-content: center;
+  column-gap: 0.5rem;
+  row-gap: 0.1rem;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--line);
+}
+
+.receipt-picker-label {
+  font-weight: 600;
+}
+
+.receipt-picker-hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.receipt-picker input[type="file"] {
+  max-width: min(100%, 260px);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.refuel-submit {
+  align-self: center;
+  flex: 0 0 auto;
+}
+
+.receipt-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.receipt-action {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--card-solid);
+  color: #475569;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.receipt-action:hover,
+.receipt-action:focus-visible {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+  color: #111827;
+}
+
+.receipt-action svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.receipt-action-static {
+  cursor: default;
+  color: #64748b;
+}
+
+.receipt-action.is-uploading {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .password-settings-form input[type="password"] {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -916,6 +1036,32 @@ input[type="checkbox"] {
   .settings-form {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .refuel-form-footer {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .refuel-options {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .receipt-picker {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-top: 0.65rem;
+  }
+
+  .receipt-picker input[type="file"] {
+    max-width: 100%;
+  }
+
+  .refuel-submit {
+    width: 100%;
   }
 
   .menu-tabs {

@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 import dotenv from "dotenv";
 import cors from "cors";
 import express from "express";
-import { pool, runInitMigration, runStationsMigration, runVehicleIdMigration, runFuelTypeMigration, runFuelFuelTypeMigration, runRefuelStationMigration, runRefuelFullFillMigration, runVehicleInitialKmMigration, runAuthMigration, runUserDataScopeMigration, runPasswordResetMigration } from "./db.js";
+import multer from "multer";
+import { pool, runInitMigration, runStationsMigration, runVehicleIdMigration, runFuelTypeMigration, runFuelFuelTypeMigration, runRefuelStationMigration, runRefuelFullFillMigration, runVehicleInitialKmMigration, runAuthMigration, runUserDataScopeMigration, runPasswordResetMigration, runRefuelReceiptMigration } from "./db.js";
 import { installAuthRoutes, requireAuth } from "./auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +20,20 @@ if (fs.existsSync(envPath)) {
 
 const app = express();
 app.set("trust proxy", 1);
+const receiptUploadDirectory = path.resolve(__dirname, "../uploads/receipts");
+fs.mkdirSync(receiptUploadDirectory, { recursive: true });
+const receiptUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    const allowedMimeTypes = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+    if (!allowedMimeTypes.has(file.mimetype)) {
+      callback(new Error("Povolené jsou pouze soubory PDF, PNG, JPG a WebP."));
+      return;
+    }
+    callback(null, true);
+  },
+});
 const clientOrigin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
 app.use(cors({ origin: clientOrigin, credentials: true }));
 app.use(express.json());
@@ -63,6 +79,21 @@ async function findApplicableDiscountedPrice(userId, station, fuelName, refuelDa
   return Number(result.rows[0].price);
 }
 
+async function removeReceiptFile(receiptPath) {
+  if (!receiptPath) {
+    return;
+  }
+
+  const filePath = path.join(receiptUploadDirectory, path.basename(receiptPath));
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.error(`Odstranění účtenky selhalo: ${error.message}`);
+    }
+  }
+}
+
 app.get("/api/health", async (_req, res) => {
   try {
     const result = await pool.query("SELECT NOW() as now");
@@ -89,7 +120,10 @@ app.get("/api/refuels", async (req, res) => {
       total_price,
       discounted_total_price,
       savings,
-      full_fill
+      full_fill,
+      receipt_original_name,
+      receipt_mime_type,
+      receipt_size
     FROM refuel_logs
     WHERE user_id = $1
     ORDER BY refuel_date DESC, id DESC
@@ -100,7 +134,7 @@ app.get("/api/refuels", async (req, res) => {
   res.json(result.rows);
 });
 
-app.post("/api/refuels", async (req, res) => {
+app.post("/api/refuels", receiptUpload.single("receipt"), async (req, res) => {
   const station = String(req.body?.station ?? "").trim().toUpperCase();
   const fuelName = String(req.body?.fuel_name ?? "").trim();
   const refuelDate = String(req.body?.refuel_date ?? "").trim();
@@ -154,8 +188,22 @@ app.post("/api/refuels", async (req, res) => {
   const totalPrice = Number((volumeL * pricePerL).toFixed(2));
   const discountedTotalPrice = effectiveDiscountedPricePerL == null ? null : Number((volumeL * effectiveDiscountedPricePerL).toFixed(2));
   const savings = discountedTotalPrice == null ? null : Number((totalPrice - discountedTotalPrice).toFixed(2));
+  const existingReceiptResult = req.file
+    ? await pool.query(
+      `SELECT receipt_path FROM refuel_logs WHERE user_id = $1 AND fuel_name = $2 AND refuel_date = $3 AND volume_l = $4 AND total_price = $5`,
+      [req.user.id, fuelName, refuelDate, volumeL, totalPrice],
+    )
+    : { rows: [] };
+  const receiptFilename = req.file
+    ? crypto.randomUUID()
+    : null;
+  if (req.file) {
+    await fs.promises.writeFile(path.join(receiptUploadDirectory, receiptFilename), req.file.buffer);
+  }
 
-  const result = await pool.query(
+  let result;
+  try {
+    result = await pool.query(
     `
     INSERT INTO refuel_logs (
       user_id,
@@ -170,9 +218,13 @@ app.post("/api/refuels", async (req, res) => {
       discounted_total_price,
       savings,
       full_fill,
+      receipt_path,
+      receipt_original_name,
+      receipt_mime_type,
+      receipt_size,
       vehicle_id
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     ON CONFLICT (user_id, fuel_name, refuel_date, volume_l, total_price)
     DO UPDATE SET
       station = COALESCE(EXCLUDED.station, refuel_logs.station),
@@ -181,11 +233,22 @@ app.post("/api/refuels", async (req, res) => {
       discounted_total_price = EXCLUDED.discounted_total_price,
       savings = EXCLUDED.savings,
       full_fill = EXCLUDED.full_fill,
-      vehicle_id = COALESCE(EXCLUDED.vehicle_id, refuel_logs.vehicle_id)
-    RETURNING id, station, fuel_name, refuel_date, mileage_km, volume_l, price_per_l, discounted_price_per_l, total_price, discounted_total_price, savings, full_fill, vehicle_id
+      vehicle_id = COALESCE(EXCLUDED.vehicle_id, refuel_logs.vehicle_id),
+      receipt_path = COALESCE(EXCLUDED.receipt_path, refuel_logs.receipt_path),
+      receipt_original_name = COALESCE(EXCLUDED.receipt_original_name, refuel_logs.receipt_original_name),
+      receipt_mime_type = COALESCE(EXCLUDED.receipt_mime_type, refuel_logs.receipt_mime_type),
+      receipt_size = COALESCE(EXCLUDED.receipt_size, refuel_logs.receipt_size)
+    RETURNING id, station, fuel_name, refuel_date, mileage_km, volume_l, price_per_l, discounted_price_per_l, total_price, discounted_total_price, savings, full_fill, receipt_path, receipt_original_name, receipt_mime_type, receipt_size, vehicle_id
     `,
-    [req.user.id, station, fuelName, refuelDate, mileageKm, volumeL, pricePerL, configuredDiscountedPricePerL, totalPrice, discountedTotalPrice, savings, fullFill, vehicleId],
-  );
+      [req.user.id, station, fuelName, refuelDate, mileageKm, volumeL, pricePerL, configuredDiscountedPricePerL, totalPrice, discountedTotalPrice, savings, fullFill, receiptFilename, req.file?.originalname || null, req.file?.mimetype || null, req.file?.size || null, vehicleId],
+    );
+  } catch (error) {
+    await removeReceiptFile(receiptFilename);
+    throw error;
+  }
+  if (req.file && existingReceiptResult.rows[0]?.receipt_path && existingReceiptResult.rows[0].receipt_path !== receiptFilename) {
+    await removeReceiptFile(existingReceiptResult.rows[0].receipt_path);
+  }
 
   const savedVehicleId = result.rows[0].vehicle_id;
   if (savedVehicleId != null) {
@@ -200,6 +263,73 @@ app.post("/api/refuels", async (req, res) => {
       refuel_date: refuelDate,
     },
   });
+});
+
+app.post("/api/refuels/:id/receipt", receiptUpload.single("receipt"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid refuel id." });
+  }
+  if (!req.file) {
+    return res.status(400).json({ ok: false, error: "Vyber účtenku." });
+  }
+
+  const receiptFilename = crypto.randomUUID();
+  const result = await pool.query(
+    `SELECT receipt_path FROM refuel_logs WHERE id = $1 AND user_id = $2`,
+    [id, req.user.id],
+  );
+  if (result.rowCount === 0) {
+    return res.status(404).json({ ok: false, error: "Refuel row not found." });
+  }
+
+  await fs.promises.writeFile(path.join(receiptUploadDirectory, receiptFilename), req.file.buffer);
+  try {
+    await pool.query(
+      `
+      UPDATE refuel_logs
+      SET receipt_path = $1, receipt_original_name = $2, receipt_mime_type = $3, receipt_size = $4
+      WHERE id = $5 AND user_id = $6
+      `,
+      [receiptFilename, req.file.originalname, req.file.mimetype, req.file.size, id, req.user.id],
+    );
+  } catch (error) {
+    await removeReceiptFile(receiptFilename);
+    throw error;
+  }
+
+  await removeReceiptFile(result.rows[0].receipt_path);
+  return res.json({
+    ok: true,
+    receipt: {
+      originalName: req.file.originalname,
+      size: req.file.size,
+    },
+  });
+});
+
+app.get("/api/refuels/:id/receipt", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid refuel id." });
+  }
+
+  const result = await pool.query(
+    `SELECT receipt_path, receipt_original_name, receipt_mime_type FROM refuel_logs WHERE id = $1 AND user_id = $2`,
+    [id, req.user.id],
+  );
+  const receipt = result.rows[0];
+  if (!receipt?.receipt_path) {
+    return res.status(404).json({ ok: false, error: "Receipt not found." });
+  }
+
+  const filePath = path.join(receiptUploadDirectory, path.basename(receipt.receipt_path));
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ ok: false, error: "Receipt file not found." });
+  }
+
+  res.type(receipt.receipt_mime_type || "application/octet-stream");
+  return res.download(filePath, path.basename(receipt.receipt_original_name || "uctenka"));
 });
 
 async function updateVehicleAvgConsumption(userId, vehicleId) {
@@ -304,7 +434,7 @@ app.delete("/api/refuels/:id", async (req, res) => {
     `
     DELETE FROM refuel_logs
     WHERE id = $1 AND user_id = $2
-    RETURNING id
+    RETURNING id, receipt_path
     `,
     [id, req.user.id],
   );
@@ -313,6 +443,7 @@ app.delete("/api/refuels/:id", async (req, res) => {
     return res.status(404).json({ ok: false, error: "Refuel row not found." });
   }
 
+  await removeReceiptFile(result.rows[0].receipt_path);
   return res.json({ ok: true, deletedId: id });
 });
 
@@ -656,6 +787,16 @@ app.delete("/api/vehicles/:id", async (req, res) => {
   return res.json({ ok: true, deletedId: id });
 });
 
+app.use((error, _req, res, next) => {
+  if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({ ok: false, error: "Účtenka může mít nejvýše 10 MB." });
+  }
+  if (error?.message === "Povolené jsou pouze soubory PDF, PNG, JPG a WebP.") {
+    return res.status(400).json({ ok: false, error: error.message });
+  }
+  return next(error);
+});
+
 const port = Number(process.env.PORT || 4000);
 
 async function bootstrap() {
@@ -670,6 +811,7 @@ async function bootstrap() {
   await runAuthMigration();
   await runUserDataScopeMigration();
   await runPasswordResetMigration();
+  await runRefuelReceiptMigration();
   app.listen(port, () => {
     console.log(`API ready on http://localhost:${port}`);
   });

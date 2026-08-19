@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS refuel_logs (
   total_price NUMERIC(10,2) NOT NULL,
   discounted_total_price NUMERIC(10,2),
   savings NUMERIC(10,2),
+  receipt_path TEXT,
+  receipt_original_name TEXT,
+  receipt_mime_type TEXT,
+  receipt_size INTEGER,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (fuel_name, refuel_date, volume_l, total_price)
 );

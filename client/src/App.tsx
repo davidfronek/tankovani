@@ -26,6 +26,8 @@ type Refuel = {
   discounted_total_price: string | null;
   savings: string | null;
   full_fill: boolean;
+  receipt_original_name: string | null;
+  receipt_size: number | null;
   vehicle_id: number | null;
 };
 
@@ -487,6 +489,7 @@ export default function App() {
     volume_l: "",
     price_per_l: "",
     full_fill: false,
+    receipt: null as File | null,
   });
   const [newStation, setNewStation] = useState("");
   const [stationNames, setStationNames] = useState<string[]>([]);
@@ -499,6 +502,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedRefuels, setSelectedRefuels] = useState<Set<number>>(new Set());
+  const [receiptUploadingId, setReceiptUploadingId] = useState<number | null>(null);
   const [selectedPrices, setSelectedPrices] = useState<Set<number>>(new Set());
   const [refuelPage, setRefuelPage] = useState(0);
   const [priceFilterStation, setPriceFilterStation] = useState("");
@@ -1153,21 +1157,20 @@ export default function App() {
     setError(null);
 
     try {
+      const formData = new FormData();
+      formData.append('station', newRefuel.station);
+      formData.append('fuel_name', newRefuel.fuel_name.trim());
+      formData.append('refuel_date', newRefuel.refuel_date);
+      if (mileageKm != null) formData.append('mileage_km', String(mileageKm));
+      formData.append('volume_l', String(volumeL));
+      formData.append('price_per_l', String(pricePerL));
+      formData.append('full_fill', String(newRefuel.full_fill));
+      if (selectedVehicleId != null) formData.append('vehicle_id', String(selectedVehicleId));
+      if (newRefuel.receipt) formData.append('receipt', newRefuel.receipt);
+
       const response = await apiFetch('/api/refuels', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          station: newRefuel.station,
-          fuel_name: newRefuel.fuel_name.trim(),
-          refuel_date: newRefuel.refuel_date,
-          mileage_km: mileageKm,
-          volume_l: volumeL,
-          price_per_l: pricePerL,
-          full_fill: newRefuel.full_fill,
-          vehicle_id: selectedVehicleId,
-        }),
+        body: formData,
       });
 
       if (!response.ok) {
@@ -1180,6 +1183,7 @@ export default function App() {
         volume_l: '',
         price_per_l: '',
         full_fill: false,
+        receipt: null,
       }));
 
       await loadData();
@@ -1206,6 +1210,27 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Smazání tankování selhalo');
       setLoading(false);
+    }
+  };
+
+  const uploadReceipt = async (id: number, file: File) => {
+    setReceiptUploadingId(id);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('receipt', file);
+      const response = await apiFetch(`/api/refuels/${id}/receipt`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Nahrání účtenky selhalo'));
+      }
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nahrání účtenky selhalo');
+    } finally {
+      setReceiptUploadingId(null);
     }
   };
 
@@ -1581,17 +1606,31 @@ export default function App() {
                     : `${configuredDiscountedPrice.toFixed(2)} CZK`}
                 </strong>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: 14, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={newRefuel.full_fill}
-                  onChange={e => setNewRefuel(prev => ({ ...prev, full_fill: e.target.checked }))}
-                />
-                Plné tankování (do plna)
-              </label>
-              <button onClick={createRefuel} disabled={loading || refuelFuelOptions.length === 0}>
-                Uložit tankování
-              </button>
+              <div className="refuel-form-footer">
+                <div className="refuel-options">
+                  <label className="full-fill-toggle">
+                    <input
+                      type="checkbox"
+                      checked={newRefuel.full_fill}
+                      onChange={e => setNewRefuel(prev => ({ ...prev, full_fill: e.target.checked }))}
+                    />
+                    <span>Plné tankování (do plna)</span>
+                  </label>
+                  <label className="receipt-picker">
+                    <span className="receipt-picker-label">Účtenka</span>
+                    <span className="receipt-picker-hint">PDF, PNG, JPG nebo WebP, max. 10 MB</span>
+                    <input
+                      key={newRefuel.receipt ? newRefuel.receipt.name : "empty-receipt"}
+                      type="file"
+                      accept="application/pdf,image/png,image/jpeg,image/webp"
+                      onChange={(event) => setNewRefuel((prev) => ({ ...prev, receipt: event.target.files?.[0] ?? null }))}
+                    />
+                  </label>
+                </div>
+                <button className="refuel-submit" onClick={createRefuel} disabled={loading || refuelFuelOptions.length === 0}>
+                  Uložit tankování
+                </button>
+              </div>
             </div>
           </section>
 
@@ -1635,6 +1674,7 @@ export default function App() {
                   <th style={{ textAlign: "right" }}>Zvýh. cena / L</th>
                   <th style={{ textAlign: "right" }}>Zaplaceno</th>
                   <th style={{ textAlign: "right" }}>Úspora</th>
+                  <th>Účtenka</th>
                   <th></th>
                 </tr>
               </thead>
@@ -1677,6 +1717,45 @@ export default function App() {
                             {savings.toFixed(2)} Kč
                           </span>
                         )}
+                      </td>
+                      <td>
+                        <div className="receipt-actions">
+                          {item.receipt_original_name ? (
+                            <a
+                              className="receipt-action"
+                              href={`/api/refuels/${item.id}/receipt`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={`Otevřít účtenku ${item.receipt_original_name}`}
+                              aria-label={`Otevřít účtenku ${item.receipt_original_name}`}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+                            </a>
+                          ) : null}
+                          <label
+                            className={`receipt-action${receiptUploadingId === item.id ? " is-uploading" : ""}`}
+                            title={receiptUploadingId === item.id ? "Nahrávání účtenky" : item.receipt_original_name ? "Nahradit účtenku" : "Nahrát účtenku"}
+                          >
+                            <span className="sr-only">{receiptUploadingId === item.id ? "Nahrávání účtenky" : item.receipt_original_name ? "Nahradit účtenku" : "Nahrát účtenku"}</span>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3M7 8l5-5 5 5M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" /></svg>
+                            <input
+                              type="file"
+                              accept="application/pdf,image/png,image/jpeg,image/webp"
+                              disabled={receiptUploadingId !== null}
+                              style={{ display: "none" }}
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                event.target.value = "";
+                                if (file) uploadReceipt(item.id, file);
+                              }}
+                            />
+                          </label>
+                          {item.receipt_original_name ? (
+                            <span className="receipt-action receipt-action-static" title={item.receipt_original_name} aria-label={item.receipt_original_name}>
+                              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td style={{ textAlign: "center", fontSize: 13 }} title={item.full_fill ? "Plné tankování" : "Dí lčí tankování"}>
                         {item.full_fill ? "🟢" : "▽"}
