@@ -18,11 +18,11 @@
   --surface-tint: #f8fafc;
   --surface-hover: #eef3f8;
   --focus: #cddff1;
-  --nav-bg: #1f2a37;
-  --nav-border: #2b3a4b;
-  --nav-text: #e5e7eb;
-  --nav-hover: #2c3f54;
-  --nav-active: #0f4c81;
+  --nav-bg: #e7e9ec;
+  --nav-border: #d3d7dc;
+  --nav-text: #334155;
+  --nav-hover: #dadde1;
+  --nav-active: #d1d5da;
   --shadow-soft: 0 10px 24px rgba(15, 23, 42, 0.08);
   --shadow-panel: 0 14px 30px rgba(15, 23, 42, 0.08);
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
@@ -90,7 +90,7 @@ body {
 
 .app-sidebar {
   position: fixed;
-  top: 7.95rem;
+  top: 9rem;
   left: max(1rem, calc((100vw - 1480px) / 2 + 1rem));
   z-index: 45;
   display: grid;
@@ -363,7 +363,7 @@ h1 {
 .menu-link {
   position: relative;
   border: 0;
-  border-radius: 5px;
+  border-radius: 0;
   background: transparent;
   color: var(--nav-text);
   padding: 0.62rem 0.75rem;
@@ -376,7 +376,7 @@ h1 {
 
 .menu-link:hover:not(:disabled) {
   background: var(--nav-hover);
-  color: #ffffff;
+  color: #1e3a5f;
   box-shadow: none;
   transform: none;
 }
@@ -387,8 +387,8 @@ h1 {
 }
 
 .menu-link-active {
-  background: var(--nav-active);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.38);
+  color: #1f2937;
   box-shadow: none;
 }
 
@@ -665,11 +665,16 @@ button:disabled {
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
-.receipt-action:hover,
-.receipt-action:focus-visible {
+button.receipt-action {
+  padding: 0;
+  font-weight: 400;
+}
+
+button.receipt-action:hover:not(:disabled),
+button.receipt-action:focus-visible {
   border-color: #94a3b8;
   background: #f1f5f9;
-  color: #111827;
+  color: #475569;
 }
 
 .receipt-action svg {
@@ -685,6 +690,141 @@ button:disabled {
 .receipt-action-static {
   cursor: default;
   color: #64748b;
+}
+
+.receipt-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.receipt-modal-content {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 980px);
+  height: min(92vh, 820px);
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--card-solid);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.receipt-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1rem 0.35rem;
+}
+
+.receipt-modal-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.receipt-modal-close {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: #475569;
+}
+
+.receipt-modal-close:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: #111827;
+}
+
+.receipt-modal-close svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+.receipt-modal-name {
+  margin: 0;
+  padding: 0 1rem 0.75rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receipt-zoom-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0 1rem 0.75rem;
+}
+
+.receipt-zoom-controls button {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: #334155;
+  font: inherit;
+  cursor: pointer;
+}
+
+.receipt-zoom-controls button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.receipt-zoom-controls button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.receipt-zoom-controls span {
+  min-width: 3.5rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.receipt-preview-viewport {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  background: #eef2f6;
+  text-align: center;
+}
+
+.receipt-preview-image,
+.receipt-preview-frame {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+}
+
+.receipt-preview-image {
+  height: auto;
+  min-height: 100%;
+  object-fit: contain;
+  padding: 0 1rem 1rem;
+  transform-origin: top center;
+  transition: transform 0.15s ease;
+}
+
+.receipt-preview-frame {
+  background: #eef2f6;
 }
 
 .receipt-action.is-uploading {

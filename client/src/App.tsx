@@ -27,6 +27,7 @@ type Refuel = {
   savings: string | null;
   full_fill: boolean;
   receipt_original_name: string | null;
+  receipt_mime_type: string | null;
   receipt_size: number | null;
   vehicle_id: number | null;
 };
@@ -503,6 +504,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRefuels, setSelectedRefuels] = useState<Set<number>>(new Set());
   const [receiptUploadingId, setReceiptUploadingId] = useState<number | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState<Refuel | null>(null);
+  const [receiptZoom, setReceiptZoom] = useState(1);
   const [selectedPrices, setSelectedPrices] = useState<Set<number>>(new Set());
   const [refuelPage, setRefuelPage] = useState(0);
   const [priceFilterStation, setPriceFilterStation] = useState("");
@@ -688,6 +691,24 @@ export default function App() {
   useEffect(() => {
     if (authUser) loadData();
   }, [authUser]);
+
+  useEffect(() => {
+    if (!receiptPreview) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setReceiptPreview(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [receiptPreview]);
+
+  useEffect(() => {
+    setReceiptZoom(1);
+  }, [receiptPreview?.id]);
 
   const totalSavings = useMemo(() => {
     return refuels.reduce((sum, item) => sum + Number(item.savings ?? 0), 0);
@@ -1721,23 +1742,22 @@ export default function App() {
                       <td>
                         <div className="receipt-actions">
                           {item.receipt_original_name ? (
-                            <a
+                            <button
+                              type="button"
                               className="receipt-action"
-                              href={`/api/refuels/${item.id}/receipt`}
-                              target="_blank"
-                              rel="noreferrer"
-                              title={`Otevřít účtenku ${item.receipt_original_name}`}
-                              aria-label={`Otevřít účtenku ${item.receipt_original_name}`}
+                              onClick={() => setReceiptPreview(item)}
+                              title={`Náhled účtenky ${item.receipt_original_name}`}
+                              aria-label={`Náhled účtenky ${item.receipt_original_name}`}
                             >
                               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
-                            </a>
+                            </button>
                           ) : null}
                           <label
                             className={`receipt-action${receiptUploadingId === item.id ? " is-uploading" : ""}`}
                             title={receiptUploadingId === item.id ? "Nahrávání účtenky" : item.receipt_original_name ? "Nahradit účtenku" : "Nahrát účtenku"}
                           >
                             <span className="sr-only">{receiptUploadingId === item.id ? "Nahrávání účtenky" : item.receipt_original_name ? "Nahradit účtenku" : "Nahrát účtenku"}</span>
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3M7 8l5-5 5 5M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" /></svg>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.8-4L3 10M3 5v5h5M4 13a8 8 0 0 0 14.8 4L21 14M21 19v-5h-5" /></svg>
                             <input
                               type="file"
                               accept="application/pdf,image/png,image/jpeg,image/webp"
@@ -2522,6 +2542,45 @@ export default function App() {
       )}
         </section>
       </div>
+      {receiptPreview ? (
+        <div className="receipt-modal" role="presentation" onClick={() => setReceiptPreview(null)}>
+          <section
+            className="receipt-modal-content"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-preview-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="receipt-modal-header">
+              <h2 id="receipt-preview-title">Náhled účtenky</h2>
+              <button type="button" className="receipt-modal-close" onClick={() => setReceiptPreview(null)} aria-label="Zavřít náhled" title="Zavřít náhled">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </header>
+            <p className="receipt-modal-name">{receiptPreview.receipt_original_name}</p>
+            {receiptPreview.receipt_mime_type?.startsWith("image/") ? (
+              <>
+                <div className="receipt-zoom-controls" aria-label="Ovládání zoomu">
+                  <button type="button" onClick={() => setReceiptZoom((zoom) => Math.max(0.25, zoom - 0.25))} disabled={receiptZoom <= 0.25} aria-label="Oddálit" title="Oddálit">−</button>
+                  <span>{Math.round(receiptZoom * 100)} %</span>
+                  <button type="button" onClick={() => setReceiptZoom((zoom) => Math.min(3, zoom + 0.25))} disabled={receiptZoom >= 3} aria-label="Přiblížit" title="Přiblížit">+</button>
+                  <button type="button" onClick={() => setReceiptZoom(1)} disabled={receiptZoom === 1}>Reset</button>
+                </div>
+                <div className="receipt-preview-viewport">
+                  <img
+                    className="receipt-preview-image"
+                    src={`/api/refuels/${receiptPreview.id}/receipt`}
+                    alt={receiptPreview.receipt_original_name || "Účtenka"}
+                    style={{ transform: `scale(${receiptZoom})` }}
+                  />
+                </div>
+              </>
+            ) : (
+              <iframe className="receipt-preview-frame" src={`/api/refuels/${receiptPreview.id}/receipt`} title={receiptPreview.receipt_original_name || "Náhled účtenky"} />
+            )}
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

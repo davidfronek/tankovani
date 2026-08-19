@@ -329,7 +329,8 @@ app.get("/api/refuels/:id/receipt", async (req, res) => {
   }
 
   res.type(receipt.receipt_mime_type || "application/octet-stream");
-  return res.download(filePath, path.basename(receipt.receipt_original_name || "uctenka"));
+  res.setHeader("Content-Disposition", `inline; filename="${path.basename(receipt.receipt_original_name || "uctenka")}"`);
+  return res.sendFile(filePath);
 });
 
 async function updateVehicleAvgConsumption(userId, vehicleId) {
