@@ -72,6 +72,7 @@ type AuthConfig = {
 };
 
 const FUEL_TYPE_OPTIONS = ["", "Benzín", "Diesel"] as const;
+const OTHER_STATION_VALUE = "__OTHER_STATION__";
 
 // Each fuel gets a pair [pump color, discount color]
 const CHART_COLOR_PAIRS: [string, string][] = [
@@ -484,6 +485,7 @@ export default function App() {
   });
   const [newRefuel, setNewRefuel] = useState({
     station: "ORLEN",
+    custom_station: "",
     fuel_name: "",
     refuel_date: new Date().toISOString().slice(0, 10),
     mileage_km: "",
@@ -949,6 +951,10 @@ export default function App() {
   }, [fuelOptionsByStation, stationNames]);
 
   const refuelFuelOptions = useMemo(() => {
+    if (newRefuel.station === OTHER_STATION_VALUE) {
+      return [];
+    }
+
     const stationFuels = fuels.filter(f => f.station === newRefuel.station);
     const selectedVehicle = vehicles.find(v => v.id === selectedVehicleId);
     const vehicleFuelType = selectedVehicle?.fuel_type ?? '';
@@ -960,8 +966,12 @@ export default function App() {
     return Array.from(new Set(eligible.map(f => f.fuel_name))).sort((a, b) => a.localeCompare(b));
   }, [fuels, newRefuel.station, vehicles, selectedVehicleId]);
 
+  const effectiveRefuelStation = newRefuel.station === OTHER_STATION_VALUE
+    ? newRefuel.custom_station.trim().toUpperCase()
+    : newRefuel.station;
+
   const configuredDiscountedPrice = useMemo(() => {
-    if (!newRefuel.fuel_name || !newRefuel.refuel_date) {
+    if (!newRefuel.fuel_name || !newRefuel.refuel_date || newRefuel.station === OTHER_STATION_VALUE) {
       return null;
     }
 
@@ -1007,7 +1017,7 @@ export default function App() {
   }, [fuelOptionsByStation, newPrice.fuel_name, newPrice.station]);
 
   useEffect(() => {
-    if (!allStations.includes(newRefuel.station)) {
+    if (newRefuel.station !== OTHER_STATION_VALUE && !allStations.includes(newRefuel.station)) {
       setNewRefuel((prev) => ({ ...prev, station: allStations[0] ?? "ORLEN" }));
     }
     if (!allStations.includes(newFuel.station)) {
@@ -1149,8 +1159,13 @@ export default function App() {
     const volumeL = Number(newRefuel.volume_l);
     const pricePerL = Number(newRefuel.price_per_l);
 
+    if (!effectiveRefuelStation) {
+      setError('Zadej název čerpací stanice.');
+      return;
+    }
+
     if (!newRefuel.fuel_name.trim()) {
-      setError('Vyber palivo.');
+      setError(newRefuel.station === OTHER_STATION_VALUE ? 'Zadej název paliva.' : 'Vyber palivo.');
       return;
     }
 
@@ -1179,7 +1194,7 @@ export default function App() {
 
     try {
       const formData = new FormData();
-      formData.append('station', newRefuel.station);
+      formData.append('station', effectiveRefuelStation);
       formData.append('fuel_name', newRefuel.fuel_name.trim());
       formData.append('refuel_date', newRefuel.refuel_date);
       if (mileageKm != null) formData.append('mileage_km', String(mileageKm));
@@ -1200,6 +1215,7 @@ export default function App() {
 
       setNewRefuel((prev) => ({
         ...prev,
+        custom_station: '',
         mileage_km: '',
         volume_l: '',
         price_per_l: '',
@@ -1553,23 +1569,51 @@ export default function App() {
                     {station}
                   </option>
                 ))}
+                <option value={OTHER_STATION_VALUE}>Jiná stanice...</option>
               </select>
-              <select
-                value={newRefuel.fuel_name}
-                onChange={(event) =>
-                  setNewRefuel((prev) => ({
-                    ...prev,
-                    fuel_name: event.target.value,
-                  }))
-                }
-              >
-                {refuelFuelOptions.length === 0 ? <option value="">Žádná paliva pro stanici</option> : null}
-                {refuelFuelOptions.map((fuelName) => (
-                  <option key={fuelName} value={fuelName}>
-                    {fuelName}
-                  </option>
-                ))}
-              </select>
+              {newRefuel.station === OTHER_STATION_VALUE ? (
+                <input
+                  type="text"
+                  placeholder="Název čerpací stanice"
+                  value={newRefuel.custom_station}
+                  onChange={(event) =>
+                    setNewRefuel((prev) => ({
+                      ...prev,
+                      custom_station: event.target.value,
+                    }))
+                  }
+                />
+              ) : null}
+              {newRefuel.station === OTHER_STATION_VALUE ? (
+                <input
+                  type="text"
+                  placeholder="Název paliva"
+                  value={newRefuel.fuel_name}
+                  onChange={(event) =>
+                    setNewRefuel((prev) => ({
+                      ...prev,
+                      fuel_name: event.target.value,
+                    }))
+                  }
+                />
+              ) : (
+                <select
+                  value={newRefuel.fuel_name}
+                  onChange={(event) =>
+                    setNewRefuel((prev) => ({
+                      ...prev,
+                      fuel_name: event.target.value,
+                    }))
+                  }
+                >
+                  {refuelFuelOptions.length === 0 ? <option value="">Žádná paliva pro stanici</option> : null}
+                  {refuelFuelOptions.map((fuelName) => (
+                    <option key={fuelName} value={fuelName}>
+                      {fuelName}
+                    </option>
+                  ))}
+                </select>
+              )}
               <input
                 type="date"
                 value={newRefuel.refuel_date}
