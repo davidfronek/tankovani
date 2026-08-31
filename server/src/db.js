@@ -91,6 +91,18 @@ export async function runRefuelReceiptMigration() {
   await pool.query(sql);
 }
 
+export async function runRefuelEditHistoryMigration() {
+  const sqlPath = path.resolve(__dirname, "../migrations/014_refuel_edit_history.sql");
+  const sql = fs.readFileSync(sqlPath, "utf8");
+  await pool.query(sql);
+}
+
+export async function runUserAdminMigration() {
+  const sqlPath = path.resolve(__dirname, "../migrations/015_user_admin.sql");
+  const sql = fs.readFileSync(sqlPath, "utf8");
+  await pool.query(sql);
+}
+
 export async function runSqlFile(relativePathFromServerRoot) {
   const sqlPath = path.resolve(__dirname, "..", relativePathFromServerRoot);
   const sql = fs.readFileSync(sqlPath, "utf8");

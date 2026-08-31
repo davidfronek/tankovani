@@ -53,7 +53,7 @@ body {
 .page {
   max-width: 1480px;
   margin: 0 auto;
-  padding: 9rem 1rem 2.25rem;
+  padding: 1rem 1rem 2.25rem;
 }
 
 .app-shell {
@@ -62,12 +62,9 @@ body {
 }
 
 .hero {
-  position: fixed;
+  position: sticky;
   top: 1rem;
-  left: 50%;
-  width: min(calc(100% - 2.5rem), 1480px);
   z-index: 50;
-  transform: translateX(-50%);
   background: #ffffff;
   border: 0;
   border-radius: 10px;
@@ -102,7 +99,9 @@ body {
 
 .app-content {
   min-width: 0;
+  width: calc(100% - 286px);
   margin-left: 286px;
+  max-width: calc(100% - 286px);
 }
 
 .kicker {
@@ -571,6 +570,17 @@ button:disabled {
   letter-spacing: 0;
 }
 
+.refuel-form-header {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.12rem;
+  margin-bottom: 0.72rem;
+}
+
+.refuel-form-header .hint {
+  font-size: 0.8rem;
+}
+
 .hint {
   font-size: 0.9rem;
   color: var(--muted);
@@ -584,8 +594,46 @@ button:disabled {
   margin-bottom: 0.85rem;
 }
 
+.refuel-entry-form > input,
+.refuel-entry-form > select,
+.refuel-entry-form > .derived-value {
+  width: 100%;
+  min-width: 0;
+  height: 2.55rem;
+  flex: 1 1 140px;
+}
+
+.refuel-entry-form {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.refuel-entry-form > .derived-value {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  padding: 0.25rem 0.62rem;
+  overflow: hidden;
+}
+
+.refuel-entry-form > .derived-value span {
+  line-height: 1;
+}
+
+.refuel-entry-form > .derived-value strong {
+  margin-top: 0.18rem;
+  line-height: 1.05;
+}
+
 .refuel-form-footer {
-  flex: 1 0 100%;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
   display: flex;
   align-items: stretch;
   justify-content: space-between;
@@ -643,6 +691,33 @@ button:disabled {
 .refuel-submit {
   align-self: center;
   flex: 0 0 auto;
+}
+
+.refuel-submit-actions,
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.refuel-submit-actions {
+  margin-left: auto;
+  align-self: center;
+}
+
+.edited-badge {
+  padding: 0.25rem 0.45rem;
+  border: 1px solid #b8dcc2;
+  border-radius: 4px;
+  background: #edf7ef;
+  color: #176641;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.edited-badge:hover,
+.edited-badge:focus-visible {
+  border-color: #176641;
 }
 
 .receipt-actions {
@@ -711,6 +786,55 @@ button.receipt-action:focus-visible {
   border-radius: 10px;
   background: var(--card-solid);
   box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.history-modal-content {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 760px);
+  max-height: min(92vh, 820px);
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--card-solid);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.history-list {
+  overflow: auto;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.history-entry {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.history-entry:first-child {
+  padding-top: 0;
+}
+
+.history-entry:last-child {
+  border-bottom: 0;
+}
+
+.history-change {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.65rem;
+  padding-top: 0.45rem;
+  font-size: 0.88rem;
+}
+
+.history-change span {
+  color: var(--muted);
+}
+
+.history-change del {
+  color: #9d1a1a;
+}
+
+.history-change strong {
+  color: #176641;
 }
 
 .receipt-modal-header {
@@ -976,7 +1100,7 @@ select:focus {
 
 table {
   width: 100%;
-  min-width: max-content;
+  min-width: 0;
   border-collapse: separate;
   border-spacing: 0;
   border-radius: 6px;
@@ -989,6 +1113,15 @@ td {
   padding: 0.48rem 0.55rem;
   border-bottom: 0;
   white-space: nowrap;
+}
+
+.refuel-history-table {
+  font-size: 0.88rem;
+}
+
+.refuel-history-table th,
+.refuel-history-table td {
+  padding: 0.4rem 0.42rem;
 }
 
 th {
@@ -1129,11 +1262,7 @@ input[type="checkbox"] {
   .hero {
     border-radius: 8px;
     padding: 0.85rem;
-    position: sticky;
     top: 0.7rem;
-    left: auto;
-    width: 100%;
-    transform: none;
   }
 
   .app-topbar {
@@ -1157,6 +1286,112 @@ input[type="checkbox"] {
 
   .app-content {
     margin-left: 0;
+    max-width: 100%;
+    width: 100%;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .refuel-history-table {
+    display: block;
+    font-size: 0.82rem;
+  }
+
+  .refuel-history-table thead {
+    display: none;
+  }
+
+  .refuel-history-table tbody {
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .refuel-history-table tbody tr {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+    padding: 0.65rem 5.2rem 0.65rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--card-solid);
+  }
+
+  .refuel-history-table tbody tr:nth-child(even),
+  .refuel-history-table tbody tr:hover {
+    background: var(--card-solid);
+  }
+
+  .refuel-history-table td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .refuel-history-table td:nth-child(1) {
+    display: none;
+  }
+
+  .refuel-history-table td:nth-child(2) {
+    color: var(--muted);
+    font-size: 0.76rem;
+  }
+
+  .refuel-history-table td:nth-child(3) {
+    font-weight: 600;
+  }
+
+  .refuel-history-table td:nth-child(5),
+  .refuel-history-table td:nth-child(6),
+  .refuel-history-table td:nth-child(7),
+  .refuel-history-table td:nth-child(9) {
+    display: inline-block;
+    margin-right: 0.7rem;
+    color: var(--muted);
+    font-size: 0.76rem;
+  }
+
+  .refuel-history-table td:nth-child(5)::before {
+    content: "Spotřeba: ";
+  }
+
+  .refuel-history-table td:nth-child(6)::before {
+    content: "Množství: ";
+  }
+
+  .refuel-history-table td:nth-child(7)::before {
+    content: "Cena: ";
+  }
+
+  .refuel-history-table td:nth-child(9)::before {
+    content: "Zaplaceno: ";
+  }
+
+  .refuel-history-table td:nth-child(13) {
+    position: absolute;
+    top: 50%;
+    right: 0.7rem;
+    transform: translateY(-50%);
+  }
+
+  .refuel-history-table th:nth-child(4),
+  .refuel-history-table td:nth-child(4),
+  .refuel-history-table th:nth-child(8),
+  .refuel-history-table td:nth-child(8),
+  .refuel-history-table th:nth-child(10),
+  .refuel-history-table td:nth-child(10),
+  .refuel-history-table th:nth-child(11),
+  .refuel-history-table td:nth-child(11),
+  .refuel-history-table th:nth-child(12),
+  .refuel-history-table td:nth-child(12) {
+    display: none;
+  }
+
+  .refuel-history-table .edited-badge {
+    padding: 0.18rem 0.2rem;
+    font-size: 0.7rem;
   }
 
   .header-user-menu {
@@ -1183,6 +1418,17 @@ input[type="checkbox"] {
     gap: 0.75rem;
   }
 
+  .refuel-entry-form > input,
+  .refuel-entry-form > select,
+  .refuel-entry-form > .derived-value {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .refuel-entry-form {
+    display: flex;
+  }
+
   .refuel-options {
     align-items: stretch;
     flex-direction: column;
@@ -1201,6 +1447,10 @@ input[type="checkbox"] {
   }
 
   .refuel-submit {
+    width: 100%;
+  }
+
+  .refuel-submit-actions {
     width: 100%;
   }
 

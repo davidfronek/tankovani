@@ -40,6 +40,30 @@ function getAllowedEmails() {
   );
 }
 
+function getAdminEmails() {
+  return new Set(
+    String(process.env.AUTH_ADMIN_EMAILS || "")
+      .split(",")
+      .map((email) => normalizeEmail(email))
+      .filter(Boolean),
+  );
+}
+
+async function ensureAdminAccess(userId) {
+  const adminEmails = getAdminEmails();
+  const countResult = await pool.query("SELECT COUNT(*)::int AS count FROM users");
+  const isOnlyUser = countResult.rows[0]?.count === 1;
+  if (!adminEmails.size && !isOnlyUser) return;
+
+  const userResult = await pool.query("SELECT email, is_admin FROM users WHERE id = $1", [userId]);
+  const user = userResult.rows[0];
+  if (!user || user.is_admin) return;
+
+  if (isOnlyUser || adminEmails.has(normalizeEmail(user.email))) {
+    await pool.query("UPDATE users SET is_admin = true WHERE id = $1", [userId]);
+  }
+}
+
 function isRegistrationEnabled() {
   return String(process.env.AUTH_ALLOW_REGISTRATION ?? "true").toLowerCase() !== "false";
 }
@@ -120,12 +144,13 @@ function publicUser(row) {
     name: row.name,
     created_at: row.created_at,
     hasPassword: row.has_password ?? Boolean(row.password_hash),
+    isAdmin: row.is_admin === true,
   };
 }
 
 async function findUserByEmail(email) {
   const result = await pool.query(
-    `SELECT id, email, name, password_hash, password_hash IS NOT NULL AS has_password, created_at FROM users WHERE lower(email) = lower($1)`,
+    `SELECT id, email, name, password_hash, password_hash IS NOT NULL AS has_password, created_at, is_admin FROM users WHERE lower(email) = lower($1)`,
     [email],
   );
   return result.rows[0] ?? null;
@@ -154,6 +179,7 @@ async function claimLegacyDataForFirstUser(userId) {
 }
 
 async function createSession(res, userId) {
+  await ensureAdminAccess(userId);
   const token = crypto.randomBytes(32).toString("base64url");
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + sessionDays * 24 * 60 * 60 * 1000);
@@ -191,7 +217,7 @@ export async function authenticateOptional(req, _res, next) {
   }
 
   const result = await pool.query(
-    `SELECT u.id, u.email, u.name, u.password_hash IS NOT NULL AS has_password, u.created_at
+    `SELECT u.id, u.email, u.name, u.password_hash IS NOT NULL AS has_password, u.created_at, u.is_admin
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = $1 AND s.expires_at > NOW()`,
@@ -206,6 +232,13 @@ export async function requireAuth(req, res, next) {
   await authenticateOptional(req, res, () => undefined);
   if (!req.user) {
     return res.status(401).json({ ok: false, error: "Authentication required." });
+  }
+  return next();
+}
+
+export function requireAdmin(req, res, next) {
+  if (!req.user?.is_admin) {
+    return res.status(403).json({ ok: false, error: "Vyžaduje oprávnění správce." });
   }
   return next();
 }
@@ -299,7 +332,7 @@ export function installAuthRoutes(app) {
     await createSession(res, userId);
 
     const userResult = await pool.query(
-      `SELECT id, email, name, password_hash IS NOT NULL AS has_password, created_at FROM users WHERE id = $1`,
+      `SELECT id, email, name, password_hash IS NOT NULL AS has_password, created_at, is_admin FROM users WHERE id = $1`,
       [userId],
     );
     res.json({ ok: true, user: publicUser(userResult.rows[0]) });
@@ -311,7 +344,7 @@ export function installAuthRoutes(app) {
 
     if (newPassword.length < 8) return res.status(400).json({ ok: false, error: "Nové heslo musí mít alespoň 8 znaků." });
 
-    const result = await pool.query(`SELECT id, email, name, password_hash, created_at FROM users WHERE id = $1`, [req.user.id]);
+    const result = await pool.query(`SELECT id, email, name, password_hash, created_at, is_admin FROM users WHERE id = $1`, [req.user.id]);
     const user = result.rows[0];
     if (!user) return res.status(404).json({ ok: false, error: "Uživatel nebyl nalezen." });
 

@@ -30,6 +30,14 @@ type Refuel = {
   receipt_mime_type: string | null;
   receipt_size: number | null;
   vehicle_id: number | null;
+  edited_at: string | null;
+};
+
+type RefuelEdit = {
+  id: number;
+  changed_at: string;
+  previous_data: Record<string, unknown>;
+  new_data: Record<string, unknown>;
 };
 
 type Price = {
@@ -64,6 +72,17 @@ type AuthUser = {
   email: string;
   name: string;
   hasPassword?: boolean;
+  isAdmin?: boolean;
+};
+
+type ManagedUser = {
+  id: number;
+  email: string;
+  name: string;
+  is_admin: boolean;
+  created_at: string;
+  refuel_count: number;
+  vehicle_count: number;
 };
 
 type AuthConfig = {
@@ -259,13 +278,14 @@ function ChartTooltip({ active, payload, label, unit }: { active?: boolean; payl
 }
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
-type SettingsPage = "account" | "vehicles" | "stations" | "prices";
+type SettingsPage = "account" | "vehicles" | "stations" | "prices" | "users";
 
 const settingsPageBySectionId: Record<string, SettingsPage> = {
   "nastaveni-ucet": "account",
   "nastaveni-vozidla": "vehicles",
   "nastaveni-stanice": "stations",
   "nastaveni-ceny": "prices",
+  "nastaveni-uzivatele": "users",
 };
 
 function AuthScreen({ config, error, resetToken, onPasswordAuth, onForgotPassword, onResetPassword }: { config: AuthConfig | null; error: string | null; resetToken: string | null; onPasswordAuth: (mode: "login" | "register", form: { email: string; password: string; name: string }) => Promise<void>; onForgotPassword: (email: string) => Promise<{ ok: boolean; resetUrl?: string }>; onResetPassword: (form: { token: string; password: string }) => Promise<void> }) {
@@ -507,6 +527,8 @@ export default function App() {
   const [selectedRefuels, setSelectedRefuels] = useState<Set<number>>(new Set());
   const [receiptUploadingId, setReceiptUploadingId] = useState<number | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<Refuel | null>(null);
+  const [editingRefuelId, setEditingRefuelId] = useState<number | null>(null);
+  const [historyPreview, setHistoryPreview] = useState<{ refuel: Refuel; edits: RefuelEdit[] } | null>(null);
   const [receiptZoom, setReceiptZoom] = useState(1);
   const [selectedPrices, setSelectedPrices] = useState<Set<number>>(new Set());
   const [refuelPage, setRefuelPage] = useState(0);
@@ -515,6 +537,8 @@ export default function App() {
   const [priceFilterDateFrom, setPriceFilterDateFrom] = useState("");
   const [priceFilterDateTo, setPriceFilterDateTo] = useState("");
   const [pricePagesByStation, setPricePagesByStation] = useState<Record<string, number>>({});
+  const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
+  const [usersLoaded, setUsersLoaded] = useState(false);
 
   const loadAuth = async () => {
     setAuthLoading(true);
@@ -686,6 +710,60 @@ export default function App() {
     }
   };
 
+  const loadUsers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const usersData = await getJson<ManagedUser[]>("/api/admin/users");
+      setManagedUsers(usersData);
+      setUsersLoaded(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Načtení uživatelů selhalo");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteManagedUser = async (id: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, "Smazání uživatele selhalo"));
+      }
+      setManagedUsers((prev) => prev.filter((u) => u.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Smazání uživatele selhalo");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportUserData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiFetch("/api/account/export");
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, "Export dat selhal"));
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `tankovani-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export dat selhal");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadAuth();
   }, []);
@@ -693,6 +771,12 @@ export default function App() {
   useEffect(() => {
     if (authUser) loadData();
   }, [authUser]);
+
+  useEffect(() => {
+    if (authUser?.isAdmin && view === "settings" && settingsPage === "users" && !usersLoaded) {
+      loadUsers();
+    }
+  }, [authUser, view, settingsPage, usersLoaded]);
 
   useEffect(() => {
     if (!receiptPreview) {
@@ -926,6 +1010,47 @@ export default function App() {
       return b.refuel_date.localeCompare(a.refuel_date); // descending by date as fallback
     });
   }, [refuels]);
+
+  const mileageByRefuelId = useMemo(() => {
+    const mileageByVehicle = new Map<string, number>();
+    const result = new Map<number, number | null>();
+    const chronologicalRefuels = [...refuels].sort((a, b) => {
+      const dateOrder = a.refuel_date.localeCompare(b.refuel_date);
+      return dateOrder !== 0 ? dateOrder : a.id - b.id;
+    });
+
+    for (const refuel of chronologicalRefuels) {
+      const vehicleKey = refuel.vehicle_id == null ? "none" : String(refuel.vehicle_id);
+      const currentMileage = refuel.mileage_km == null ? null : Number(refuel.mileage_km);
+      const previousMileage = mileageByVehicle.get(vehicleKey);
+      result.set(
+        refuel.id,
+        currentMileage != null && previousMileage != null ? currentMileage - previousMileage : null,
+      );
+      if (currentMileage == null) {
+        mileageByVehicle.delete(vehicleKey);
+      } else {
+        mileageByVehicle.set(vehicleKey, currentMileage);
+      }
+    }
+
+    return result;
+  }, [refuels]);
+
+  const consumptionByRefuelId = useMemo(() => {
+    const result = new Map<number, number | null>();
+    for (const refuel of refuels) {
+      const mileage = mileageByRefuelId.get(refuel.id);
+      const volume = Number(refuel.volume_l);
+      result.set(
+        refuel.id,
+        mileage != null && mileage > 0 && Number.isFinite(volume)
+          ? (volume / mileage) * 100
+          : null,
+      );
+    }
+    return result;
+  }, [mileageByRefuelId, refuels]);
 
   const refuelPageSize = 5;
   const refuelPageCount = Math.ceil(sortedRefuels.length / refuelPageSize);
@@ -1204,13 +1329,13 @@ export default function App() {
       if (selectedVehicleId != null) formData.append('vehicle_id', String(selectedVehicleId));
       if (newRefuel.receipt) formData.append('receipt', newRefuel.receipt);
 
-      const response = await apiFetch('/api/refuels', {
-        method: 'POST',
+      const response = await apiFetch(editingRefuelId == null ? '/api/refuels' : `/api/refuels/${editingRefuelId}`, {
+        method: editingRefuelId == null ? 'POST' : 'PUT',
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Přidání tankování selhalo'));
+        throw new Error(await getApiErrorMessage(response, editingRefuelId == null ? 'Přidání tankování selhalo' : 'Úprava tankování selhala'));
       }
 
       setNewRefuel((prev) => ({
@@ -1222,10 +1347,47 @@ export default function App() {
         full_fill: false,
         receipt: null,
       }));
+      setEditingRefuelId(null);
 
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Přidání tankování selhalo');
+      setError(err instanceof Error ? err.message : editingRefuelId == null ? 'Přidání tankování selhalo' : 'Úprava tankování selhala');
+      setLoading(false);
+    }
+  };
+
+  const startRefuelEdit = (item: Refuel) => {
+    const knownStation = allStations.includes(item.station);
+    setEditingRefuelId(item.id);
+    setSelectedVehicleId(item.vehicle_id);
+    setNewRefuel({
+      station: knownStation ? item.station : OTHER_STATION_VALUE,
+      custom_station: knownStation ? "" : item.station,
+      fuel_name: item.fuel_name,
+      refuel_date: formatDateOnly(item.refuel_date),
+      mileage_km: item.mileage_km == null ? "" : String(item.mileage_km),
+      volume_l: String(item.volume_l),
+      price_per_l: String(item.price_per_l),
+      full_fill: item.full_fill,
+      receipt: null,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelRefuelEdit = () => {
+    setEditingRefuelId(null);
+    setNewRefuel((prev) => ({ ...prev, custom_station: "", mileage_km: "", volume_l: "", price_per_l: "", full_fill: false, receipt: null }));
+  };
+
+  const previewRefuelHistory = async (item: Refuel) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const edits = await getJson<RefuelEdit[]>(`/api/refuels/${item.id}/history`);
+      setHistoryPreview({ refuel: item, edits });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Historii změn se nepodařilo načíst.");
+    } finally {
       setLoading(false);
     }
   };
@@ -1541,11 +1703,11 @@ export default function App() {
           </section>
 
           <section className="card">
-            <div className="card-header">
-              <h2>Přidání tankování</h2>
-              <span className="hint">Uloží nový záznam do historie tankování.</span>
+            <div className="card-header refuel-form-header">
+              <h2>{editingRefuelId == null ? "Přidání tankování" : "Úprava tankování"}</h2>
+              <span className="hint">{editingRefuelId == null ? "Uloží nový záznam do historie tankování." : "Po uložení se přepočítají související hodnoty."}</span>
             </div>
-            <div className="settings-form">
+            <div className="settings-form refuel-entry-form">
               {(() => {
                 const sv = vehicles.find(v => v.id === selectedVehicleId);
                 return sv?.fuel_type ? (
@@ -1692,9 +1854,12 @@ export default function App() {
                     />
                   </label>
                 </div>
-                <button className="refuel-submit" onClick={createRefuel} disabled={loading || refuelFuelOptions.length === 0}>
-                  Uložit tankování
-                </button>
+                <div className="refuel-submit-actions">
+                  {editingRefuelId != null ? <button className="ghost" onClick={cancelRefuelEdit} disabled={loading}>Zrušit</button> : null}
+                  <button className="refuel-submit" onClick={createRefuel} disabled={loading || (editingRefuelId == null && refuelFuelOptions.length === 0)}>
+                    {editingRefuelId == null ? "Uložit tankování" : "Uložit změny"}
+                  </button>
+                </div>
               </div>
             </div>
           </section>
@@ -1715,7 +1880,7 @@ export default function App() {
                 </button>
               </div>
             )}
-            <table>
+            <table className="refuel-history-table">
               <thead>
                 <tr>
                   <th>
@@ -1734,12 +1899,15 @@ export default function App() {
                   <th>Datum</th>
                   <th>Palivo</th>
                   <th style={{ textAlign: "right" }}>Stav km</th>
+                  <th style={{ textAlign: "right" }}>Nájezd</th>
+                  <th style={{ textAlign: "right" }}>Spotřeba (L/100 km)</th>
                   <th style={{ textAlign: "right" }}>Množství</th>
                   <th style={{ textAlign: "right" }}>Cena / L</th>
                   <th style={{ textAlign: "right" }}>Zvýh. cena / L</th>
                   <th style={{ textAlign: "right" }}>Zaplaceno</th>
                   <th style={{ textAlign: "right" }}>Úspora</th>
                   <th>Účtenka</th>
+                  <th>Stav</th>
                   <th></th>
                 </tr>
               </thead>
@@ -1770,6 +1938,12 @@ export default function App() {
                       <td>{formatDisplayDate(item.refuel_date)}</td>
                       <td>{item.fuel_name}</td>
                       <td style={{ textAlign: "right" }}>{item.mileage_km == null ? "–" : `${Number(item.mileage_km).toFixed(0)} km`}</td>
+                      <td style={{ textAlign: "right" }}>
+                        {mileageByRefuelId.get(item.id) == null ? "–" : `${mileageByRefuelId.get(item.id)!.toFixed(0)} km`}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {consumptionByRefuelId.get(item.id) == null ? "–" : consumptionByRefuelId.get(item.id)!.toFixed(2)}
+                      </td>
                       <td style={{ textAlign: "right" }}>{Number(item.volume_l).toFixed(2)} L</td>
                       <td style={{ textAlign: "right" }}>{Number(item.price_per_l).toFixed(2)} Kč</td>
                       <td style={{ textAlign: "right" }}>
@@ -1821,8 +1995,20 @@ export default function App() {
                           ) : null}
                         </div>
                       </td>
+                      <td>
+                        {item.edited_at ? (
+                          <button type="button" className="edited-badge" onClick={() => previewRefuelHistory(item)} title="Náhled změn">
+                            Upraveno {formatDisplayDate(item.edited_at)}
+                          </button>
+                        ) : <span className="hint">Původní</span>}
+                      </td>
                       <td style={{ textAlign: "center", fontSize: 13 }} title={item.full_fill ? "Plné tankování" : "Dí lčí tankování"}>
-                        {item.full_fill ? "🟢" : "▽"}
+                        <div className="row-actions">
+                          <button type="button" className="receipt-action" onClick={() => startRefuelEdit(item)} title="Upravit tankování" aria-label="Upravit tankování">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16-.7 4.7L8 20l11-11a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg>
+                          </button>
+                          <span>{item.full_fill ? "🟢" : "▽"}</span>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -2026,6 +2212,11 @@ export default function App() {
             <button type="button" onClick={() => openSettings("nastaveni-ceny")} disabled={loading} className={settingsPage === "prices" ? "tab-active" : undefined}>
               Ceny paliv
             </button>
+            {authUser.isAdmin ? (
+              <button type="button" onClick={() => openSettings("nastaveni-uzivatele")} disabled={loading} className={settingsPage === "users" ? "tab-active" : undefined}>
+                Uživatelé
+              </button>
+            ) : null}
           </nav>
 
         {settingsPage === "account" ? (
@@ -2083,6 +2274,15 @@ export default function App() {
               {passwordMessage ? <p className={passwordMessage.includes("změněno") ? "success-message" : "error"}>{passwordMessage}</p> : null}
             </section>
           </form>
+          <div className="settings-blocks">
+            <section>
+              <h3>Export dat</h3>
+              <div className="settings-form">
+                <span className="hint">Stáhne JSON se všemi tvými daty (vozidla, paliva, ceny, tankování).</span>
+                <button type="button" onClick={exportUserData} disabled={loading}>Exportovat data</button>
+              </div>
+            </section>
+          </div>
         </section>
         ) : null}
 
@@ -2581,6 +2781,54 @@ export default function App() {
           )}
         </section>
         ) : null}
+
+        {settingsPage === "users" && authUser.isAdmin ? (
+        <section className="card" id="nastaveni-uzivatele">
+          <div className="card-header">
+            <h2>Uživatelé</h2>
+            <span className="hint">{managedUsers.length} účtů</span>
+          </div>
+          {managedUsers.length > 0 ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>E-mail</th>
+                  <th>Jméno</th>
+                  <th>Registrace</th>
+                  <th style={{ textAlign: "right" }}>Tankování</th>
+                  <th style={{ textAlign: "right" }}>Vozidla</th>
+                  <th>Role</th>
+                  <th>Akce</th>
+                </tr>
+              </thead>
+              <tbody>
+                {managedUsers.map((u) => (
+                  <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td>{u.name || "–"}</td>
+                    <td>{formatDisplayDate(u.created_at)}</td>
+                    <td style={{ textAlign: "right" }}>{u.refuel_count}</td>
+                    <td style={{ textAlign: "right" }}>{u.vehicle_count}</td>
+                    <td>{u.is_admin ? "Správce" : "Uživatel"}</td>
+                    <td>
+                      <button
+                        className="danger-button"
+                        onClick={() => deleteManagedUser(u.id)}
+                        disabled={loading || u.id === authUser.id}
+                        title={u.id === authUser.id ? "Vlastní účet nelze smazat" : "Smazat uživatele"}
+                      >
+                        Smazat
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="hint">Žádní uživatelé.</p>
+          )}
+        </section>
+        ) : null}
         </div>
         </>
       )}
@@ -2622,6 +2870,33 @@ export default function App() {
             ) : (
               <iframe className="receipt-preview-frame" src={`/api/refuels/${receiptPreview.id}/receipt`} title={receiptPreview.receipt_original_name || "Náhled účtenky"} />
             )}
+          </section>
+        </div>
+      ) : null}
+      {historyPreview ? (
+        <div className="receipt-modal" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) setHistoryPreview(null); }}>
+          <section className="history-modal-content" role="dialog" aria-modal="true" aria-labelledby="history-title">
+            <header className="receipt-modal-header">
+              <div>
+                <h2 id="history-title">Náhled změn</h2>
+                <p className="hint">{historyPreview.refuel.fuel_name}, {formatDisplayDate(historyPreview.refuel.refuel_date)}</p>
+              </div>
+              <button type="button" className="receipt-modal-close" onClick={() => setHistoryPreview(null)} aria-label="Zavřít náhled" title="Zavřít náhled">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </header>
+            <div className="history-list">
+              {historyPreview.edits.map((edit) => (
+                <article className="history-entry" key={edit.id}>
+                  <strong>{new Date(edit.changed_at).toLocaleString("cs-CZ")}</strong>
+                  {(["station", "fuel_name", "refuel_date", "mileage_km", "volume_l", "price_per_l", "total_price", "discounted_total_price", "savings", "full_fill", "vehicle_id"] as const).map((field) => {
+                    if (String(edit.previous_data[field] ?? "") === String(edit.new_data[field] ?? "")) return null;
+                    const labels: Record<string, string> = { station: "Stanice", fuel_name: "Palivo", refuel_date: "Datum", mileage_km: "Stav km", volume_l: "Množství", price_per_l: "Cena / l", total_price: "Celkem", discounted_total_price: "Zvýhodněné celkem", savings: "Úspora", full_fill: "Plné tankování", vehicle_id: "Vozidlo" };
+                    return <div className="history-change" key={field}><span>{labels[field]}</span><del>{String(edit.previous_data[field] ?? "-")}</del><strong>{String(edit.new_data[field] ?? "-")}</strong></div>;
+                  })}
+                </article>
+              ))}
+            </div>
           </section>
         </div>
       ) : null}

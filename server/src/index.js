@@ -6,8 +6,8 @@ import dotenv from "dotenv";
 import cors from "cors";
 import express from "express";
 import multer from "multer";
-import { pool, runInitMigration, runStationsMigration, runVehicleIdMigration, runFuelTypeMigration, runFuelFuelTypeMigration, runRefuelStationMigration, runRefuelFullFillMigration, runVehicleInitialKmMigration, runAuthMigration, runUserDataScopeMigration, runPasswordResetMigration, runRefuelReceiptMigration } from "./db.js";
-import { installAuthRoutes, requireAuth } from "./auth.js";
+import { pool, runInitMigration, runStationsMigration, runVehicleIdMigration, runFuelTypeMigration, runFuelFuelTypeMigration, runRefuelStationMigration, runRefuelFullFillMigration, runVehicleInitialKmMigration, runAuthMigration, runUserDataScopeMigration, runPasswordResetMigration, runRefuelReceiptMigration, runRefuelEditHistoryMigration, runUserAdminMigration } from "./db.js";
+import { installAuthRoutes, requireAuth, requireAdmin } from "./auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -121,6 +121,8 @@ app.get("/api/refuels", async (req, res) => {
       discounted_total_price,
       savings,
       full_fill,
+      vehicle_id,
+      edited_at,
       receipt_original_name,
       receipt_mime_type,
       receipt_size
@@ -132,6 +134,26 @@ app.get("/api/refuels", async (req, res) => {
   );
 
   res.json(result.rows);
+});
+
+app.get("/api/refuels/:id/history", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid refuel id." });
+  }
+
+  const result = await pool.query(
+    `
+    SELECT h.id, h.changed_at, h.previous_data, h.new_data
+    FROM refuel_edit_history h
+    INNER JOIN refuel_logs r ON r.id = h.refuel_id
+    WHERE h.refuel_id = $1 AND h.user_id = $2
+    ORDER BY h.changed_at DESC, h.id DESC
+    `,
+    [id, req.user.id],
+  );
+
+  return res.json(result.rows);
 });
 
 app.post("/api/refuels", receiptUpload.single("receipt"), async (req, res) => {
@@ -263,6 +285,99 @@ app.post("/api/refuels", receiptUpload.single("receipt"), async (req, res) => {
       refuel_date: refuelDate,
     },
   });
+});
+
+app.put("/api/refuels/:id", receiptUpload.none(), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid refuel id." });
+  }
+
+  const station = String(req.body?.station ?? "").trim().toUpperCase();
+  const fuelName = String(req.body?.fuel_name ?? "").trim();
+  const refuelDate = String(req.body?.refuel_date ?? "").trim();
+  const mileageInput = req.body?.mileage_km;
+  const mileageKm = mileageInput === "" || mileageInput == null ? null : Number(mileageInput);
+  const volumeL = Number(req.body?.volume_l);
+  const pricePerL = Number(req.body?.price_per_l);
+  const fullFill = req.body?.full_fill === true || req.body?.full_fill === "true";
+  const vehicleIdInput = req.body?.vehicle_id;
+  const vehicleId = vehicleIdInput == null || vehicleIdInput === "" ? null : Number(vehicleIdInput);
+
+  if (!station || !fuelName || !refuelDate || Number.isNaN(new Date(refuelDate).getTime())) {
+    return res.status(400).json({ ok: false, error: "Vyplň stanici, palivo a platné datum." });
+  }
+  if (!Number.isFinite(volumeL) || volumeL <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid volume." });
+  }
+  if (!Number.isFinite(pricePerL) || pricePerL <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid price per liter." });
+  }
+  if (mileageKm != null && (!Number.isFinite(mileageKm) || mileageKm < 0)) {
+    return res.status(400).json({ ok: false, error: "Invalid mileage." });
+  }
+  if (vehicleId != null && (!Number.isInteger(vehicleId) || vehicleId <= 0)) {
+    return res.status(400).json({ ok: false, error: "Invalid vehicle id." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const sourceResult = await client.query(
+      `SELECT * FROM refuel_logs WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      [id, req.user.id],
+    );
+    if (sourceResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, error: "Refuel row not found." });
+    }
+
+    if (vehicleId != null) {
+      const vehicleResult = await client.query(`SELECT id FROM vehicles WHERE id = $1 AND user_id = $2`, [vehicleId, req.user.id]);
+      if (vehicleResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, error: "Invalid vehicle id." });
+      }
+    }
+
+    const previous = sourceResult.rows[0];
+    const configuredDiscountedPricePerL = await findApplicableDiscountedPrice(req.user.id, station, fuelName, refuelDate);
+    const effectiveDiscountedPricePerL = configuredDiscountedPricePerL == null ? null : Math.min(pricePerL, configuredDiscountedPricePerL);
+    const totalPrice = Number((volumeL * pricePerL).toFixed(2));
+    const discountedTotalPrice = effectiveDiscountedPricePerL == null ? null : Number((volumeL * effectiveDiscountedPricePerL).toFixed(2));
+    const savings = discountedTotalPrice == null ? null : Number((totalPrice - discountedTotalPrice).toFixed(2));
+    const updatedResult = await client.query(
+      `
+      UPDATE refuel_logs
+      SET station = $1, fuel_name = $2, refuel_date = $3, mileage_km = $4, volume_l = $5,
+          price_per_l = $6, discounted_price_per_l = $7, total_price = $8,
+          discounted_total_price = $9, savings = $10, full_fill = $11, vehicle_id = $12,
+          edited_at = NOW()
+      WHERE id = $13 AND user_id = $14
+      RETURNING id, station, fuel_name, refuel_date, mileage_km, volume_l, price_per_l,
+        discounted_price_per_l, total_price, discounted_total_price, savings, full_fill,
+        vehicle_id, edited_at, receipt_original_name, receipt_mime_type, receipt_size
+      `,
+      [station, fuelName, refuelDate, mileageKm, volumeL, pricePerL, configuredDiscountedPricePerL, totalPrice, discountedTotalPrice, savings, fullFill, vehicleId, id, req.user.id],
+    );
+    await client.query(
+      `INSERT INTO refuel_edit_history (refuel_id, user_id, previous_data, new_data) VALUES ($1, $2, $3::jsonb, $4::jsonb)`,
+      [id, req.user.id, JSON.stringify(previous), JSON.stringify(updatedResult.rows[0])],
+    );
+    await client.query("COMMIT");
+
+    const affectedVehicles = new Set([previous.vehicle_id, vehicleId].filter((value) => value != null).map(Number));
+    for (const affectedVehicleId of affectedVehicles) {
+      await updateVehicleAvgConsumption(req.user.id, affectedVehicleId);
+      await updateVehicleFuelLevel(req.user.id, affectedVehicleId);
+    }
+    return res.json({ ok: true, refuel: { ...updatedResult.rows[0], refuel_date: refuelDate } });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 app.post("/api/refuels/:id/receipt", receiptUpload.single("receipt"), async (req, res) => {
@@ -788,6 +903,79 @@ app.delete("/api/vehicles/:id", async (req, res) => {
   return res.json({ ok: true, deletedId: id });
 });
 
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  const result = await pool.query(`
+    SELECT
+      u.id, u.email, u.name, u.is_admin, u.created_at,
+      (SELECT COUNT(*) FROM refuel_logs WHERE user_id = u.id)::int AS refuel_count,
+      (SELECT COUNT(*) FROM vehicles WHERE user_id = u.id)::int AS vehicle_count
+    FROM users u
+    ORDER BY u.created_at ASC
+  `);
+  res.json(result.rows);
+});
+
+app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid user id." });
+  }
+  if (id === req.user.id) {
+    return res.status(400).json({ ok: false, error: "Nelze smazat vlastní účet." });
+  }
+
+  const result = await pool.query(`DELETE FROM users WHERE id = $1 RETURNING id`, [id]);
+  if (result.rowCount === 0) {
+    return res.status(404).json({ ok: false, error: "Uživatel nebyl nalezen." });
+  }
+
+  return res.json({ ok: true, deletedId: id });
+});
+
+app.get("/api/account/export", async (req, res) => {
+  const userId = req.user.id;
+  const [userResult, vehiclesResult, fuelsResult, pricesResult, refuelsResult, historyResult] = await Promise.all([
+    pool.query(`SELECT email, name, created_at FROM users WHERE id = $1`, [userId]),
+    pool.query(
+      `SELECT id, name, car_type, fuel_type, tank_capacity_l, current_fuel_l, avg_consumption_l100, initial_mileage_km, note
+       FROM vehicles WHERE user_id = $1 ORDER BY id`,
+      [userId],
+    ),
+    pool.query(`SELECT id, station, fuel_name, fuel_type FROM fuels WHERE user_id = $1 ORDER BY station, fuel_name`, [userId]),
+    pool.query(
+      `SELECT id, station, fuel_name, price, TO_CHAR(price_date, 'YYYY-MM-DD') AS price_date
+       FROM fuel_prices WHERE user_id = $1 ORDER BY price_date DESC, id DESC`,
+      [userId],
+    ),
+    pool.query(
+      `SELECT id, station, fuel_name, TO_CHAR(refuel_date, 'YYYY-MM-DD') AS refuel_date, mileage_km, volume_l,
+        price_per_l, discounted_price_per_l, total_price, discounted_total_price, savings, full_fill,
+        vehicle_id, edited_at, receipt_original_name
+       FROM refuel_logs WHERE user_id = $1 ORDER BY refuel_date, id`,
+      [userId],
+    ),
+    pool.query(
+      `SELECT h.id, h.refuel_id, h.changed_at, h.previous_data, h.new_data
+       FROM refuel_edit_history h WHERE h.user_id = $1 ORDER BY h.changed_at`,
+      [userId],
+    ),
+  ]);
+
+  const exportData = {
+    exported_at: new Date().toISOString(),
+    user: userResult.rows[0] ?? null,
+    vehicles: vehiclesResult.rows,
+    fuels: fuelsResult.rows,
+    fuel_prices: pricesResult.rows,
+    refuel_logs: refuelsResult.rows,
+    refuel_edit_history: historyResult.rows,
+  };
+
+  const filename = `tankovani-export-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  return res.json(exportData);
+});
+
 app.use((error, _req, res, next) => {
   if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
     return res.status(400).json({ ok: false, error: "Účtenka může mít nejvýše 10 MB." });
@@ -813,6 +1001,8 @@ async function bootstrap() {
   await runUserDataScopeMigration();
   await runPasswordResetMigration();
   await runRefuelReceiptMigration();
+  await runRefuelEditHistoryMigration();
+  await runUserAdminMigration();
   app.listen(port, () => {
     console.log(`API ready on http://localhost:${port}`);
   });
